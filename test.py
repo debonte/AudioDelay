@@ -4,8 +4,8 @@ import sys
 import pyaudio
 
 
-CHUNK = 1024*64
-FRAME_SHIFT = 6000
+CHUNK = 1024*6
+FRAME_SHIFT = 1024*32
 
 
 def playWithShift(filePath: str):
@@ -28,7 +28,7 @@ def playWithShift(filePath: str):
 
         # Play samples from the wave file (3)
         while len(data := wf.readframes(CHUNK)):  # Requires Python 3.8+ for :=
-            (shiftedData, wrapData) = frameShift(data, wrapData, frameWidth, sampleWidth)
+            (shiftedData, wrapData) = shift(data, wrapData, frameWidth, sampleWidth, FRAME_SHIFT)
             stream.write(bytes(shiftedData))
 
         # Close stream (4)
@@ -38,17 +38,20 @@ def playWithShift(filePath: str):
         p.terminate()
 
 
-def frameShift(data: bytes, wrapData: bytearray | None, frameWidth: int, sampleWidth: int):
+def shift(data: bytes, wrapData: bytearray | None, frameWidth: int, sampleWidth: int, frameShift: int):
     writeableData = bytearray(data)
     dataLen = len(data)
     numFrames = int(dataLen / frameWidth)
 
     lastWrapData = wrapData
-    wrapData = bytearray([0 for _ in range(FRAME_SHIFT * frameWidth)])
+    wrapData = bytearray([0 for _ in range(frameShift * frameWidth)])
+    if lastWrapData and dataLen < len(lastWrapData):
+        for i in range(len(lastWrapData) - dataLen):
+            wrapData[i] = lastWrapData[i + dataLen]
 
     for iFrame in range(numFrames - 1, -1, -1):
         srcStartByte = iFrame * frameWidth
-        destStartByte = srcStartByte + FRAME_SHIFT * frameWidth
+        destStartByte = srcStartByte + frameShift * frameWidth
 
         for i in range(sampleWidth):
             if destStartByte < dataLen - 1:
@@ -56,11 +59,11 @@ def frameShift(data: bytes, wrapData: bytearray | None, frameWidth: int, sampleW
             else:
                 wrapData[destStartByte - dataLen + i] = data[srcStartByte + i]
 
-    for iWrapFrame in range(FRAME_SHIFT - 1, -1, -1):
+    for iWrapFrame in range(min(frameShift, numFrames) - 1, -1, -1):
         startByte = iWrapFrame * frameWidth
 
         for i in range(sampleWidth):
-            writeableData[startByte + i] = lastWrapData[srcStartByte + i] if lastWrapData else 0
+            writeableData[startByte + i] = lastWrapData[startByte + i] if lastWrapData else 0
 
     return (writeableData, wrapData)
 
@@ -72,7 +75,18 @@ if __name__ == "__main__":
 
     # frameWidth = 4
     # sampleWidth = 2
-    # testData = bytes([x for x in range(256)])
-    # (shiftedData, wrapData) = frameShift(testData, None, frameWidth, sampleWidth)
+    # testData = [x for x in range(64)]
+    # chunkSize = 4
+    # startOffset = 0
+    # frameShift = 2
+    # wrapData = None
 
+    # print(*testData)
+    # while startOffset < len(testData):
+    #     (shiftedData, wrapData) = shift(bytes(testData[startOffset:startOffset + chunkSize]), wrapData, frameWidth, sampleWidth, frameShift)
+    #     startOffset = startOffset + chunkSize
+    #     print(list(shiftedData))
+
+
+    # print("Done")
     playWithShift(sys.argv[1])
